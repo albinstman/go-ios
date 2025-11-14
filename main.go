@@ -360,7 +360,7 @@ The commands work as following:
 	device, err := ios.GetDevice(udid)
 	exitIfError("failed getting device: "+udid, err)
 
-	f := tiny.TinyAppRunWda(device)
+	f := tiny.WdaRun(device)
 	fmt.Println(f)
 	return
 
