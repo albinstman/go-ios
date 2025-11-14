@@ -1,9 +1,8 @@
 package ios
 
 import (
+	"fmt"
 	"net"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // Lockdownport is the port of the always running lockdownd on the iOS device.
@@ -47,8 +46,7 @@ func (lockDownConn LockDownConnection) EnableSessionSslServerMode(pairRecord Pai
 func (lockDownConn LockDownConnection) Send(msg interface{}) error {
 	bytes, err := lockDownConn.plistCodec.Encode(msg)
 	if err != nil {
-		log.Error("failed lockdown send")
-		return err
+		return fmt.Errorf("LockDownConnection.Send: failed to encode message to plist: %w", err)
 	}
 	return lockDownConn.deviceConnection.Send(bytes)
 }

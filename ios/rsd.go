@@ -200,6 +200,22 @@ func newRsdServiceFromTcpConn(conn *net.TCPConn) (RsdService, error) {
 		c:   h,
 	}, nil
 }
+func NewRsdServiceFromConn(conn net.Conn) (RsdService, error) {
+	h, err := http.NewHttpConnection(conn)
+	if err != nil {
+		return RsdService{}, fmt.Errorf("newRsdServiceFromTcpConn: failed to connect to http2: %w", err)
+	}
+
+	x, err := CreateXpcConnection(h)
+	if err != nil {
+		return RsdService{}, fmt.Errorf("newRsdServiceFromTcpConn: failed to create xpc connection: %w", err)
+	}
+
+	return RsdService{
+		xpc: x,
+		c:   h,
+	}, nil
+}
 
 // Handshake sends a handshake request to the device and returns the RsdHandshakeResponse
 // which contains the UDID and the services available on the device.

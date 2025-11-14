@@ -179,9 +179,6 @@ func Prepare(device ios.DeviceEntry, skip []string, certBytes []byte, orgname st
 		return err
 	}
 
-	if err != nil {
-		return err
-	}
 	err = ios.SetSystemTime(device)
 	if err != nil {
 		return err

@@ -114,6 +114,16 @@ func NewDeviceInfoService(device ios.DeviceEntry) (*DeviceInfoService, error) {
 	return &DeviceInfoService{channel: processControlChannel, conn: dtxConn}, nil
 }
 
+// NewDeviceInfoService creates a new DeviceInfoService for a given device
+func NewDeviceInfoServiceWithClose(device ios.DeviceEntry) (*DeviceInfoService, error) {
+	dtxConn, err := connectInstruments(device)
+	if err != nil {
+		return nil, err
+	}
+	processControlChannel := dtxConn.RequestChannelIdentifier(deviceInfoServiceName, loggingDispatcher{dtxConn})
+	return &DeviceInfoService{channel: processControlChannel, conn: dtxConn}, nil
+}
+
 // Close closes up the DTX connection
 func (d *DeviceInfoService) Close() {
 	d.conn.Close()

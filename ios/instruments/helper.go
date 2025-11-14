@@ -52,6 +52,22 @@ func connectInstruments(device ios.DeviceEntry) (*dtx.Connection, error) {
 	return dtxConn, nil
 }
 
+func connectInstrumentsWithClose(device ios.DeviceEntry) (*dtx.Connection, error) {
+	if device.SupportsRsd() {
+		log.Debugf("Connecting to %s", serviceNameRsd)
+		return dtx.NewTunnelConnection(device, serviceNameRsd)
+	}
+	dtxConn, err := dtx.NewUsbmuxdConnection(device, serviceName)
+	if err != nil {
+		log.Debugf("Failed connecting to %s, trying %s", serviceName, serviceNameiOS14)
+		dtxConn, err = dtx.NewUsbmuxdConnection(device, serviceNameiOS14)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return dtxConn, nil
+}
+
 func toMap(msg dtx.Message) (string, map[string]interface{}, error) {
 	if len(msg.Payload) != 1 {
 		return "", map[string]interface{}{}, fmt.Errorf("error extracting, msg %+v has payload size !=1", msg)

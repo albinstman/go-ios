@@ -280,13 +280,13 @@ func GetValuesPlist(device DeviceEntry) (map[string]interface{}, error) {
 func GetValues(device DeviceEntry) (GetAllValuesResponse, error) {
 	lockdownConnection, err := ConnectLockdownWithSession(device)
 	if err != nil {
-		return GetAllValuesResponse{}, err
+		return GetAllValuesResponse{}, fmt.Errorf("failed connecting to lockdown: %w", err)
 	}
 	defer lockdownConnection.Close()
 
 	allValues, err := lockdownConnection.GetValues()
 	if err != nil {
-		return GetAllValuesResponse{}, err
+		return GetAllValuesResponse{}, fmt.Errorf("failed getting lockdown values: %w", err)
 	}
 	return allValues, nil
 }

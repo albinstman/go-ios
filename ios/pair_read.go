@@ -85,7 +85,7 @@ func (muxConn *UsbMuxConnection) ReadPair(udid string) (PairRecord, error) {
 	muxConn.Send(newReadPair(udid))
 	resp, err := muxConn.ReadMessage()
 	if err != nil {
-		return PairRecord{}, fmt.Errorf("Error reading PairRecord: %v", err)
+		return PairRecord{}, fmt.Errorf("error reading PairRecord: %w", err)
 	}
 	pairRecordData, err := pairRecordDatafromBytes(resp.Payload)
 	return PairRecordfromBytes(pairRecordData.PairRecordData), err
@@ -95,7 +95,7 @@ func (muxConn *UsbMuxConnection) ReadPair(udid string) (PairRecord, error) {
 func ReadPairRecord(udid string) (PairRecord, error) {
 	muxConnection, err := NewUsbMuxConnectionSimple()
 	if err != nil {
-		return PairRecord{}, fmt.Errorf("Could not create usbmuxConnection with error %v", err)
+		return PairRecord{}, fmt.Errorf("could not create usbmuxConnection with error %w", err)
 	}
 	defer muxConnection.Close()
 	return muxConnection.ReadPair(udid)

@@ -160,6 +160,16 @@ func NewTunnelConnection(device ios.DeviceEntry, serviceName string) (*Connectio
 	return newDtxConnection(conn)
 }
 
+// NewTunnelConnection connects and starts reading from a Dtx based service on the device, using tunnel interface instead of usbmuxd
+func NewTunnelConnectionWithClose(device ios.DeviceEntry, serviceName string) (*Connection, error) {
+	conn, err := ios.ConnectToServiceTunnelIface(device, serviceName)
+	if err != nil {
+		return nil, err
+	}
+
+	return newDtxConnection(conn)
+}
+
 func newDtxConnection(conn ios.DeviceConnectionInterface) (*Connection, error) {
 	requestChannelMessages := make(chan Message, 5)
 

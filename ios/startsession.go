@@ -47,11 +47,11 @@ func startSessionResponsefromBytes(plistBytes []byte) StartSessionResponse {
 func (lockDownConn *LockDownConnection) StartSession(pairRecord PairRecord) (StartSessionResponse, error) {
 	err := lockDownConn.Send(newStartSessionRequest(pairRecord.HostID, pairRecord.SystemBUID))
 	if err != nil {
-		return StartSessionResponse{}, err
+		return StartSessionResponse{}, fmt.Errorf("failed to send StartSession request: %w", err)
 	}
 	resp, err := lockDownConn.ReadMessage()
 	if err != nil {
-		return StartSessionResponse{}, err
+		return StartSessionResponse{}, fmt.Errorf("failed to read StartSession response: %w", err)
 	}
 	response := startSessionResponsefromBytes(resp)
 	if response.Error != "" {

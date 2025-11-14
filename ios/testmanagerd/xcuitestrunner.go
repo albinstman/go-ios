@@ -8,6 +8,7 @@ import (
 	"maps"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/Masterminds/semver"
 	"github.com/danielpaulus/go-ios/ios/appservice"
@@ -429,7 +430,6 @@ func runXUITestWithBundleIdsXcode15Ctx(
 	case <-ctx.Done():
 		break
 	}
-	log.Infof("Killing test runner with pid %d ...", testRunnerLaunch.Pid)
 	err = killTestRunner(appserviceConn, testRunnerLaunch.Pid)
 	if err != nil {
 		log.Infof("Nothing to kill, process with pid %d is already dead", testRunnerLaunch.Pid)
@@ -440,6 +440,45 @@ func runXUITestWithBundleIdsXcode15Ctx(
 	log.Debugf("Done running test")
 
 	return config.Listener.TestSuites, config.Listener.err
+}
+
+func RunXUITestWithBundleIdsXcode15CtxTiny(
+	config TestConfig,
+) error {
+	installationProxy, err := installationproxy.New(config.Device)
+
+	if err != nil {
+		return fmt.Errorf("runXUITestWithBundleIdsXcode15Ctx: cannot connect to installation proxy: %w", err)
+	}
+
+	apps, err := installationProxy.BrowseUserApps()
+	if err != nil {
+		return fmt.Errorf("runXUITestWithBundleIdsXcode15Ctx: cannot browse user apps: %w", err)
+	}
+
+	testAppInfo, err := getappInfo(config.TestRunnerBundleId, apps)
+	if err != nil {
+		return fmt.Errorf("runXUITestWithBundleIdsXcode15Ctx: cannot get test app information: %w", err)
+	}
+
+	installationProxy.Close()
+	dptr := &config.Device
+	appserviceConn, err := appservice.NewPtr(dptr)
+
+	if err != nil {
+		return fmt.Errorf("runXUITestWithBundleIdsXcode15Ctx: cannot connect to app service: %w", err)
+	}
+
+	//defer appserviceConn.Close()
+	fmt.Printf("Starting test runner %s with test bundle %s\n  args %v\n env %v\n", config.TestRunnerBundleId, path.Join(testAppInfo.path, "PlugIns", config.XctestConfigName))
+	_, err = startTestRunner17(appserviceConn, config.TestRunnerBundleId, strings.ToUpper(uuid.New().String()), testAppInfo.path+"/PlugIns/"+config.XctestConfigName, config.Args, config.Env, config.XcTest)
+	if err != nil {
+		return fmt.Errorf("runXUITestWithBundleIdsXcode15Ctx: cannot start test runner: %w", err)
+	}
+	//defer testRunnerLaunch.Close()
+	time.Sleep(5 * time.Second)
+
+	return nil
 }
 
 type processKiller interface {

@@ -121,12 +121,6 @@ func GetDevice(udid string) (DeviceEntry, error) {
 }
 
 func GetDeviceWithAddress(udid string, address string, provider RsdPortProvider) (DeviceEntry, error) {
-	if udid == "" {
-		udid = os.Getenv("udid")
-		if udid != "" {
-			log.Info("using udid from env.udid variable")
-		}
-	}
 	log.Debugf("Looking for device '%s'", udid)
 	deviceList, err := ListDevices()
 	if err != nil {
@@ -150,7 +144,7 @@ func GetDeviceWithAddress(udid string, address string, provider RsdPortProvider)
 			return device, nil
 		}
 	}
-	return DeviceEntry{}, fmt.Errorf("Device '%s' not found. Is it attached to the machine?", udid)
+	return DeviceEntry{}, fmt.Errorf("device '%s' not found. Is it attached to the machine?", udid)
 }
 
 // PathExists is used to determine whether the path folder exists

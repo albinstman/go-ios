@@ -3,6 +3,7 @@ package ios
 import (
 	"crypto/tls"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -82,12 +83,11 @@ func (conn *DeviceConnectionRWC) Reader() io.Reader {
 func (conn *DeviceConnectionRWC) Send(message []byte) error {
 	n, err := conn.c.Write(message)
 	if n < len(message) {
-		log.Errorf("DeviceConnection failed writing %d bytes, only %d sent", len(message), n)
+		return fmt.Errorf("deviceConnection failed writing %d bytes, only %d sent", len(message), n)
 	}
 	if err != nil {
-		log.Errorf("Failed sending: %s", err)
 		conn.Close()
-		return err
+		return fmt.Errorf("failed sending: %s", err)
 	}
 	return nil
 }
@@ -139,7 +139,7 @@ func (conn *DeviceConnection) connectToSocketAddress(socketAddress string) error
 	network, address := GetSocketTypeAndAddress(socketAddress)
 	c, err := net.Dial(network, address)
 	if err != nil {
-		return err
+		return fmt.Errorf("could not connect to %s socket at %s: %w", network, address, err)
 	}
 	log.Tracef("Opening connection: %v", &c)
 	conn.c = c

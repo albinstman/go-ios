@@ -341,3 +341,7 @@ func exchangeCoreTunnelParameters(stream io.ReadWriteCloser) (tunnelParameters, 
 	}
 	return parameters, nil
 }
+
+func ExchangeCoreTunnelParameters(stream io.ReadWriteCloser) (tunnelParameters, error) {
+	return exchangeCoreTunnelParameters(stream)
+}

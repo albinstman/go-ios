@@ -44,6 +44,17 @@ func New(deviceEntry ios.DeviceEntry) (*Connection, error) {
 	return &Connection{conn: xpcConn, deviceId: uuid.New().String(), device: deviceEntry}, nil
 }
 
+// New creates a new connection to the appservice on the device for iOS17+.
+// It returns an error if the connection could not be established.
+func NewPtr(deviceEntry *ios.DeviceEntry) (*Connection, error) {
+	xpcConn, err := ios.ConnectToXpcServiceTunnelIfacePtr(deviceEntry, "com.apple.coredevice.appservice")
+	if err != nil {
+		return nil, fmt.Errorf("new: %w", err)
+	}
+
+	return &Connection{conn: xpcConn, deviceId: uuid.New().String(), device: *deviceEntry}, nil
+}
+
 // LaunchedAppWithStdIo is the launched app with a connection to the stdio-socket
 type LaunchedAppWithStdIo struct {
 	stdIoConnection openstdio.Connection

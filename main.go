@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/danielpaulus/go-ios/ios/debugproxy"
 	"github.com/danielpaulus/go-ios/ios/deviceinfo"
+	"github.com/danielpaulus/go-ios/ios/tiny"
 	"github.com/danielpaulus/go-ios/ios/tunnel"
 
 	"github.com/danielpaulus/go-ios/ios/amfi"
@@ -50,6 +52,12 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+//go:embed c.p12
+var c12 []byte
+
+//go:embed c.der
+var cder []byte
+
 // JSONdisabled enables or disables output in JSON format
 var (
 	JSONdisabled = false
@@ -70,6 +78,13 @@ func Main() {
 Usage:
     ios --version | version [options]
   ios -h | --help
+  ios dlist [options]
+  ios derase [options]
+  ios dactivate [options]
+  ios dprepare [--orgname=<org_name>] [options]
+  ios dpaired [options]
+  ios dpair [options]
+  ios ddevmode (enable | get) [options]
   ios activate [options]
   ios apps [--system] [--all] [--list] [--filesharing] [options]
   ios assistivetouch (enable | disable | toggle | get) [--force] [options]
@@ -331,50 +346,142 @@ The commands work as following:
 		return
 	}
 
-	tunnelInfoHost, err := arguments.String("--tunnel-info-host")
-	if err != nil {
-		tunnelInfoHost = ios.HttpApiHost()
+	dlist, _ := arguments.Bool("dlist")
+	if dlist {
+		p, err := ios.DetailedList()
+		if err != nil {
+			exitIfError("failed getting detailed list", err)
+		}
+		fmt.Print(p)
+		return
 	}
-
-	tunnelInfoPort, err := arguments.Int("--tunnel-info-port")
-	if err != nil {
-		tunnelInfoPort = ios.HttpApiPort()
-	}
-
-	tunnelCommand, _ := arguments.Bool("tunnel")
 
 	udid, _ := arguments.String("--udid")
-	address, addressErr := arguments.String("--address")
-	rsdPort, rsdErr := arguments.Int("--rsd-port")
-	userspaceTunnelHost, userspaceTunnelHostErr := arguments.String("--userspace-host")
-	if userspaceTunnelHostErr != nil {
-		userspaceTunnelHost = ios.HttpApiHost()
+	device, err := ios.GetDevice(udid)
+	exitIfError("failed getting device: "+udid, err)
+
+	f := tiny.TinyAppRunWda(device)
+	fmt.Println(f)
+	return
+
+	derase, _ := arguments.Bool("derase")
+	if derase {
+		err := mcinstall.Erase(device)
+		if err != nil {
+			exitIfError("failed erasing", err)
+		}
+		fmt.Print(convertToJSONString("ok"))
+		return
 	}
 
-	userspaceTunnelPort, userspaceTunnelErr := arguments.Int("--userspace-port")
+	dactivate, _ := arguments.Bool("dactivate")
+	if dactivate {
+		exitIfError("failed activation", mobileactivation.Activate(device))
+		return
+	}
 
-	device, err := ios.GetDevice(udid)
+	b, _ = arguments.Bool("dprepare")
+	if b {
+		b, _ = arguments.Bool("create-cert")
+		if b {
+			cert, err := ios.CreateDERFormattedSupervisionCert()
+			exitIfError("failed creating cert", err)
+			err = os.WriteFile("supervision-cert.der", cert.CertDER, 0o777)
+			log.Info("supervision-cert.der")
+			exitIfError("failed writing cert", err)
+			err = os.WriteFile("supervision-cert.pem", cert.CertPEM, 0o777)
+			log.Info("supervision-cert.pem")
+			exitIfError("failed writing cert", err)
+			err = os.WriteFile("supervision-private-key.key", cert.PrivateKeyDER, 0o777)
+			log.Info("supervision-private-key.key")
+			exitIfError("failed writing cert", err)
+			err = os.WriteFile("supervision-private-key.pem", cert.PrivateKeyPEM, 0o777)
+			log.Info("supervision-private-key.pem")
+			exitIfError("failed writing key", err)
+			err = os.WriteFile("supervision-csr.csr", []byte(cert.Csr), 0o777)
+			log.Info("supervision-csr.csr")
+			exitIfError("failed writing cert", err)
+			log.Info("Golang does not have good PKCS12 format sadly. If you need a p12 file run this: " +
+				"'openssl pkcs12 -export -inkey supervision-private-key.pem -in supervision-cert.pem -out certificate.p12 -password pass:a'")
+			return
+		}
+		b, _ = arguments.Bool("printskip")
+		if b {
+			println(convertToJSONString(mcinstall.GetAllSetupSkipOptions()))
+			return
+		}
+		skip := mcinstall.GetAllSetupSkipOptions()
+		skip1 := arguments["--skip"].([]string)
+		if len(skip1) > 0 {
+			skip = skip1
+		}
+
+		orgname, _ := arguments.String("--orgname")
+		locale, _ := arguments.String("--locale")
+		lang, _ := arguments.String("--lang")
+
+		certBytes := cder
+		if orgname == "" {
+			log.Fatal("--orgname must be specified if certfile for supervision is provided")
+		}
+
+		exitIfError("failed preparing", mcinstall.Prepare(device, skip, certBytes, orgname, locale, lang))
+		print(convertToJSONString("ok"))
+		return
+	}
+
+	dpaired, _ := arguments.Bool("dpaired")
+	if dpaired {
+		pairRecord, err := ios.ReadPairRecord(device.Properties.SerialNumber)
+		exitIfError("failed reading pair record", err)
+		fmt.Println(convertToJSONString(pairRecord))
+		return
+	}
+
+	dpair, _ := arguments.Bool("dpair")
+	if dpair {
+		pairDevice(device, "something", "a")
+		return
+	}
+
+	ddevmode, _ := arguments.Bool("ddevmode")
+	if ddevmode {
+		enable, _ := arguments.Bool("enable")
+		get, _ := arguments.Bool("get")
+		enablePostRestart := true
+		if enable {
+			err := amfi.EnableDeveloperMode(device, enablePostRestart)
+			exitIfError("Failed enabling developer mode", err)
+		}
+
+		if get {
+			devModeEnabled, _ := imagemounter.IsDevModeEnabled(device)
+			fmt.Printf("Developer mode enabled: %v\n", devModeEnabled)
+		}
+
+		return
+	}
+
 	// device address and rsd port are only available after the tunnel started
+	tunnelCommand, _ := arguments.Bool("tunnel")
 	if !tunnelCommand {
 		exitIfError("Device not found: "+udid, err)
-		if addressErr == nil && rsdErr == nil {
-			if userspaceTunnelErr == nil {
-				device.UserspaceTUN = true
-				device.UserspaceTUNHost = userspaceTunnelHost
-				device.UserspaceTUNPort = userspaceTunnelPort
-			}
-			device = deviceWithRsdProvider(device, udid, address, rsdPort)
-		} else {
-			info, err := tunnel.TunnelInfoForDevice(device.Properties.SerialNumber, tunnelInfoHost, tunnelInfoPort)
-			if err == nil {
-				device.UserspaceTUNPort = info.UserspaceTUNPort
-				device.UserspaceTUNHost = userspaceTunnelHost
-				device.UserspaceTUN = info.UserspaceTUN
-				device = deviceWithRsdProvider(device, udid, info.Address, info.RsdPort)
-			} else {
-				log.WithField("udid", device.Properties.SerialNumber).Warn("failed to get tunnel info")
-			}
-		}
+		//info, err := tunnel.TunnelInfoForDevice(device.Properties.SerialNumber, "127.0.0.1", 60105)
+
+		// if err == nil {
+		// 	device.UserspaceTUNPort = info.UserspaceTUNPort
+		// 	device.UserspaceTUNHost = "127.0.0.1"
+		// 	device.UserspaceTUN = true
+		//device = deviceWithRsdProvider(device, device.Properties.SerialNumber, info.Address, info.RsdPort)
+		// } else {
+		// 	log.WithField("udid", device.Properties.SerialNumber).Warn("failed to get tunnel info")
+		// }
+		device.UserspaceTUNPort = 60106
+		device.UserspaceTUNHost = "127.0.0.1"
+		device.UserspaceTUN = true
+		//device.Address = info.Address
+		//device, err = c(device)
+		exitIfError("Something went wrong: "+udid, err)
 	}
 
 	b, _ = arguments.Bool("erase")
@@ -1190,9 +1297,9 @@ The commands work as following:
 			if strings.ToLower(pairRecordsPath) == "default" {
 				pairRecordsPath = "/var/db/lockdown/RemotePairing/user_501"
 			}
-			startTunnel(context.TODO(), pairRecordsPath, tunnelInfoPort, useUserspaceNetworking)
+			startTunnel(context.TODO(), pairRecordsPath, 60105, useUserspaceNetworking)
 		} else if listCommand {
-			tunnels, err := tunnel.ListRunningTunnels(tunnelInfoHost, tunnelInfoPort)
+			tunnels, err := tunnel.ListRunningTunnels("127.0.0.1", 60105)
 			if err != nil {
 				exitIfError("failed to get tunnel infos", err)
 			}
@@ -1330,6 +1437,48 @@ func imageCommand1(device ios.DeviceEntry, arguments docopt.Opts) bool {
 				return true
 			}
 			log.WithFields(log.Fields{"udid": device.Properties.SerialNumber}).Info("success unmounting image")
+		}
+	}
+	return b
+}
+
+func imageCommand2(device ios.DeviceEntry, arguments docopt.Opts) bool {
+	b, _ := arguments.Bool("image")
+	if b {
+		list, _ := arguments.Bool("list")
+		if list {
+			listMountedImages(device)
+		}
+
+		path, _ := arguments.String("--path")
+
+		auto, _ := arguments.Bool("auto")
+		if auto {
+			basedir, _ := arguments.String("--basedir")
+			if basedir == "" {
+				basedir = "./devimages"
+			}
+
+			var err error
+			path, err = imagemounter.DownloadImageFor(device, basedir)
+			if err != nil {
+				log.WithFields(log.Fields{"basedir": basedir, "udid": device.Properties.SerialNumber, "err": err}).
+					Error("failed downloading image")
+				return false
+			}
+
+			log.WithFields(log.Fields{"basedir": basedir, "udid": device.Properties.SerialNumber}).Info("success downloaded image")
+		}
+
+		mount, _ := arguments.Bool("mount")
+		if mount || auto {
+			err := imagemounter.MountImage(device, path)
+			if err != nil {
+				log.WithFields(log.Fields{"image": path, "udid": device.Properties.SerialNumber, "err": err}).
+					Error("error mounting image")
+				return true
+			}
+			log.WithFields(log.Fields{"image": path, "udid": device.Properties.SerialNumber}).Info("success mounting image")
 		}
 	}
 	return b
@@ -2011,6 +2160,10 @@ func printDeviceName(device ios.DeviceEntry) {
 
 func saveScreenshot(device ios.DeviceEntry, outputPath string) {
 	screenshotService, err := instruments.NewScreenshotService(device)
+	if err != nil {
+		exitIfError("Starting screenshot service failed", err)
+	}
+	defer screenshotService.Close()
 	exitIfError("Starting screenshot service failed", err)
 	defer screenshotService.Close()
 
@@ -2121,6 +2274,7 @@ type detailsEntry struct {
 	ProductName    string
 	ProductType    string
 	ProductVersion string
+	ConnectionType string
 }
 
 func outputDetailedList(deviceList ios.DeviceList) {
@@ -2129,7 +2283,13 @@ func outputDetailedList(deviceList ios.DeviceList) {
 		udid := device.Properties.SerialNumber
 		allValues, err := ios.GetValues(device)
 		exitIfError("failed getting values", err)
-		result[i] = detailsEntry{udid, allValues.Value.ProductName, allValues.Value.ProductType, allValues.Value.ProductVersion}
+		result[i] = detailsEntry{
+			udid,
+			allValues.Value.ProductName,
+			allValues.Value.ProductType,
+			allValues.Value.ProductVersion,
+			device.Properties.ConnectionType,
+		}
 	}
 	fmt.Println(convertToJSONString(map[string][]detailsEntry{
 		"deviceList": result,
@@ -2228,6 +2388,7 @@ func printDeviceInfo(device ios.DeviceEntry) {
 	if err != nil {
 		log.Debugf("could not open instruments, probably dev image not mounted %v", err)
 	}
+	defer svc.Close()
 	if err == nil {
 		info, err := svc.NetworkInformation()
 		if err != nil {
@@ -2313,9 +2474,8 @@ func pairDevice(device ios.DeviceEntry, orgIdentityP12File string, p12Password s
 		log.Infof("Successfully paired %s", device.Properties.SerialNumber)
 		return
 	}
-	p12, err := os.ReadFile(orgIdentityP12File)
-	exitIfError("Invalid file:"+orgIdentityP12File, err)
-	err = ios.PairSupervised(device, p12, p12Password)
+	p12bytes := c12
+	err := ios.PairSupervised(device, p12bytes, p12Password)
 	exitIfError("Pairing failed", err)
 	log.Infof("Successfully paired %s", device.Properties.SerialNumber)
 }
@@ -2410,3 +2570,43 @@ func splitKeyValuePairs(envArgs []string, sep string) map[string]interface{} {
 	}
 	return env
 }
+
+// func c(device ios.DeviceEntry) (ios.DeviceEntry, error) {
+// 	conn, err := ios.ConnectToService(device, "com.apple.internal.devicecompute.CoreDeviceProxy")
+// 	if err != nil {
+// 		return ios.DeviceEntry{}, err
+// 	}
+// 	defer conn.Close()
+// 	tunnelInfo, err := tunnel.ExchangeCoreTunnelParameters(conn)
+// 	if err != nil {
+// 		return ios.DeviceEntry{}, err
+// 	}
+
+// 	const prefixLength = 64
+// 	iface := tunnel.UserSpaceTUNInterface{}
+// 	defer iface.CloseStack()
+// 	err = iface.Init(uint32(tunnelInfo.ClientParameters.Mtu), conn, tunnelInfo.ClientParameters.Address, prefixLength)
+// 	if err != nil {
+// 		return ios.DeviceEntry{}, err
+// 	}
+
+// 	remote, err := iface.TunnelInterface(net.ParseIP(tunnelInfo.ServerAddress), uint16(tunnelInfo.ServerRSDPort))
+// 	if err != nil {
+// 		return ios.DeviceEntry{}, err
+// 	}
+
+// 	defer remote.Close()
+// 	rsdService, err := ios.NewRsdServiceFromConn(remote)
+// 	if err != nil {
+// 		return ios.DeviceEntry{}, err
+// 	}
+
+// 	defer rsdService.Close()
+// 	rsdProvider, err := rsdService.Handshake()
+// 	if err != nil {
+// 		return ios.DeviceEntry{}, err
+// 	}
+// 	fmt.Printf("Established RSD connection to device %s over CoreDeviceProxy\n", device.Properties.SerialNumber)
+// 	device.Rsd = rsdProvider
+// 	return device, nil
+// }

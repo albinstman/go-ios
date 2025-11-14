@@ -1,8 +1,8 @@
-package tunnel
+package tunnelMock
 
 import (
-	"context"
-	"encoding/binary"
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/danielpaulus/go-ios/ios"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -227,69 +226,58 @@ func (iface *UserSpaceTUNInterface) Init(mtu uint32, connToTUNIface io.ReadWrite
 	return nil
 }
 
-func ConnectUserSpaceTunnelLockdown(device ios.DeviceEntry, ifacePort int) (Tunnel, error) {
-	conn, err := ios.ConnectToService(device, coreDeviceProxy)
-	if err != nil {
-		return Tunnel{}, err
+type tunnelParameters struct {
+	ServerAddress    string
+	ServerRSDPort    uint64
+	ClientParameters struct {
+		Address string
+		Netmask string
+		Mtu     uint64
 	}
-	return connectToUserspaceTunnelLockdown(context.TODO(), device, conn, ifacePort)
 }
 
-func connectToUserspaceTunnelLockdown(ctx context.Context, device ios.DeviceEntry, connToDevice io.ReadWriteCloser, ifacePort int) (Tunnel, error) {
-	slog.Info("connect to lockdown tunnel endpoint on device")
-	tunnelInfo, err := exchangeCoreTunnelParameters(connToDevice)
-	fmt.Printf("Received tunnel info: %+v\n", tunnelInfo)
+func exchangeCoreTunnelParameters(stream io.ReadWriteCloser) (tunnelParameters, error) {
+	rq, err := json.Marshal(map[string]interface{}{
+		"type": "clientHandshakeRequest",
+		"mtu":  1280,
+	})
 	if err != nil {
-		return Tunnel{}, fmt.Errorf("could not exchange tunnel parameters. %w", err)
-	}
-	const prefixLength = 64
-	iface := UserSpaceTUNInterface{}
-	err = iface.Init(uint32(tunnelInfo.ClientParameters.Mtu), connToDevice, tunnelInfo.ClientParameters.Address, prefixLength)
-	if err != nil {
-		return Tunnel{}, fmt.Errorf("could not setup tunnel interface. %w", err)
+		return tunnelParameters{}, err
 	}
 
-	listener, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", ifacePort))
+	buf := bytes.NewBuffer(nil)
+	// Write on bytes.Buffer never returns an error
+	_, _ = buf.Write([]byte("CDTunnel\000"))
+	_ = buf.WriteByte(byte(len(rq)))
+	_, _ = buf.Write(rq)
+
+	_, err = stream.Write(buf.Bytes())
 	if err != nil {
-		return Tunnel{}, fmt.Errorf("could not setup listener. %w", err)
+		return tunnelParameters{}, err
 	}
 
-	listener.Addr()
-	go listenToConns(iface, listener)
-
-	closeFunc := func() error {
-		iface.networkStack.Close()
-		return errors.Join(connToDevice.Close(), listener.Close())
+	header := make([]byte, len("CDTunnel")+2)
+	n, err := stream.Read(header)
+	if err != nil {
+		return tunnelParameters{}, fmt.Errorf("could not header read from stream. %w", err)
 	}
-	return Tunnel{
-		Address: tunnelInfo.ServerAddress,
-		RsdPort: int(tunnelInfo.ServerRSDPort),
-		Udid:    device.Properties.SerialNumber,
-		closer:  closeFunc,
-	}, nil
+
+	bodyLen := header[len(header)-1]
+
+	res := make([]byte, bodyLen)
+	n, err = stream.Read(res)
+	if err != nil {
+		return tunnelParameters{}, fmt.Errorf("could not read from stream. %w", err)
+	}
+
+	var parameters tunnelParameters
+	err = json.Unmarshal(res[:n], &parameters)
+	if err != nil {
+		return tunnelParameters{}, err
+	}
+	return parameters, nil
 }
 
-func listenToConns(iface UserSpaceTUNInterface, listener net.Listener) error {
-	defer func() {
-		slog.Info("Stopped listening for connections")
-	}()
-
-	for {
-		client, err := listener.Accept()
-		if err != nil {
-			return err
-		}
-		slog.Info("Received connection request", "from", client.RemoteAddr(), "to", client.LocalAddr())
-		remoteAddrBytes := make([]byte, 16)
-		_, err = client.Read(remoteAddrBytes)
-		if err != nil {
-			return err
-		}
-
-		remotePortBytes := make([]byte, 4)
-		_, err = client.Read(remotePortBytes)
-		port := binary.LittleEndian.Uint32(remotePortBytes)
-		slog.Info("Received connection request to device ", "ip", net.IP(remoteAddrBytes), "port", port)
-		go iface.TunnelRWCThroughInterface(0, net.IP(remoteAddrBytes), uint16(port), client)
-	}
+func ExchangeCoreTunnelParameters(stream io.ReadWriteCloser) (tunnelParameters, error) {
+	return exchangeCoreTunnelParameters(stream)
 }

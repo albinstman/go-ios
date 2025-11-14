@@ -84,7 +84,6 @@ func StartNewProxyConnection(ctx context.Context, clientConn io.ReadWriteCloser,
 	log.WithFields(log.Fields{"conn": fmt.Sprintf("%#v", clientConn), "phonePort": phonePort}).Infof("Connected to port")
 	deviceConn := usbmuxConn.ReleaseDeviceConnection()
 
-	// proxyConn := iosproxy{clientConn, deviceConn}
 	ctx2, cancel := context.WithCancel(ctx)
 	var wg sync.WaitGroup
 	wg.Add(1)

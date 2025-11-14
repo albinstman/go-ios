@@ -163,13 +163,13 @@ func (muxConn UsbMuxConnection) decode(r io.Reader) (UsbMuxMessage, error) {
 
 	err := binary.Read(r, binary.LittleEndian, &muxHeader)
 	if err != nil {
-		return UsbMuxMessage{}, err
+		return UsbMuxMessage{}, fmt.Errorf("error '%s' while reading usbmux header", err.Error())
 	}
 
 	payloadBytes := make([]byte, muxHeader.Length-16)
 	n, err := io.ReadFull(r, payloadBytes)
 	if err != nil {
-		return UsbMuxMessage{}, fmt.Errorf("Error '%s' while reading usbmux package. Only %d bytes received instead of %d", err.Error(), n, muxHeader.Length-16)
+		return UsbMuxMessage{}, fmt.Errorf("error '%s' while reading usbmux package. Only %d bytes received instead of %d", err.Error(), n, muxHeader.Length-16)
 	}
 	log.Tracef("UsbMux Receive on %v", &muxConn.deviceConn)
 

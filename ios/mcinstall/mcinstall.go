@@ -31,6 +31,19 @@ func New(device ios.DeviceEntry) (*Connection, error) {
 	return &mcInstallConn, nil
 }
 
+func NewWithUdid(device ios.DeviceEntry) (*Connection, error) {
+	deviceConn, err := ios.ConnectToService(device, serviceName)
+	if err != nil {
+		return &Connection{}, err
+	}
+
+	var mcInstallConn Connection
+	mcInstallConn.deviceConn = deviceConn
+	mcInstallConn.plistCodec = ios.NewPlistCodec()
+
+	return &mcInstallConn, nil
+}
+
 type ProfileInfo struct {
 	Identifier string
 	Manifest   ProfileManifest

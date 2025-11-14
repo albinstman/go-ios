@@ -1,8 +1,6 @@
 package ios
 
 import (
-	"encoding/binary"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -10,6 +8,7 @@ import (
 	"time"
 
 	"github.com/danielpaulus/go-ios/ios/http"
+	"github.com/danielpaulus/go-ios/ios/tunnelMock"
 
 	"github.com/danielpaulus/go-ios/ios/xpc"
 )
@@ -115,8 +114,7 @@ func ConnectToShimService(device DeviceEntry, service string) (DeviceConnectionI
 	if !device.SupportsRsd() {
 		return nil, fmt.Errorf("ConnectToShimService: Cannot connect to %s, missing tunnel address and RSD port.  To start the tunnel, run `ios tunnel start`", service)
 	}
-	port := device.Rsd.GetPort(service)
-	conn, err := ConnectTUNDevice(device.Address, port, device)
+	conn, err := ConnectToServiceTunnelIfaceMock(device, service)
 	if err != nil {
 		return nil, err
 	}
@@ -133,9 +131,7 @@ func ConnectToXpcServiceTunnelIface(device DeviceEntry, serviceName string) (*xp
 	if !device.SupportsRsd() {
 		return nil, fmt.Errorf("ConnectToXpcServiceTunnelIface: Cannot connect to %s, missing tunnel address and RSD port. To start the tunnel, run `ios tunnel start`", serviceName)
 	}
-	port := device.Rsd.GetPort(serviceName)
-
-	conn, err := ConnectTUNDevice(device.Address, port, device)
+	conn, err := ConnectToServiceTunnelIfaceMock(device, serviceName)
 	if err != nil {
 		return nil, fmt.Errorf("ConnectToHttp2: failed to dial: %w", err)
 	}
@@ -147,18 +143,152 @@ func ConnectToXpcServiceTunnelIface(device DeviceEntry, serviceName string) (*xp
 	return CreateXpcConnection(h)
 }
 
-func ConnectToServiceTunnelIface(device DeviceEntry, serviceName string) (DeviceConnectionInterface, error) {
+// ConnectToServiceTunnelIface connects to a service on an iOS17+ device using a XPC over HTTP2 connection
+// It returns a new xpc.Connection
+func ConnectToXpcServiceTunnelIfacePtr(device *DeviceEntry, serviceName string) (*xpc.Connection, error) {
 	if !device.SupportsRsd() {
-		return nil, fmt.Errorf("ConnectToServiceTunnelIface: Cannot connect to %s, missing tunnel address and RSD port", serviceName)
+		return nil, fmt.Errorf("ConnectToXpcServiceTunnelIface: Cannot connect to %s, missing tunnel address and RSD port. To start the tunnel, run `ios tunnel start`", serviceName)
 	}
-	port := device.Rsd.GetPort(serviceName)
+	conn, err := ConnectToServiceTunnelIfaceMockPtr(device, serviceName)
+	if err != nil {
+		return nil, fmt.Errorf("ConnectToHttp2: failed to dial: %w", err)
+	}
 
-	conn, err := ConnectTUNDevice(device.Address, port, device)
+	h, err := http.NewHttpConnection(conn)
+	if err != nil {
+		return nil, fmt.Errorf("ConnectToXpcServiceTunnelIface: failed to connect to http2: %w", err)
+	}
+	return CreateXpcConnection(h)
+}
+
+func ConnectToServiceTunnelIfaceMockPtr(device *DeviceEntry, serviceName string) (DeviceConnectionInterface, error) {
+	fmt.Printf("UUUUUUUUUU %s\n", device.Properties.SerialNumber)
+	fmt.Printf("AAAAAAAAAA %v\n", device.Rsd)
+	if device.Rsd != nil {
+		sport := device.Rsd.GetPort(serviceName)
+		sconn, err := device.USInterface.TunnelInterface(net.ParseIP(device.Address), uint16(sport))
+		if err != nil {
+			return nil, fmt.Errorf("ConnectToServiceTunnelIface: failed to connect to tunnel: %w", err)
+		}
+		return NewDeviceConnectionWithRWC(sconn), nil
+	}
+	conn, err := ConnectToService(*device, "com.apple.internal.devicecompute.CoreDeviceProxy")
+	if err != nil {
+		return nil, err
+	}
+
+	tunnelInfo, err := tunnelMock.ExchangeCoreTunnelParameters(conn)
+	if err != nil {
+		return nil, err
+	}
+	const prefixLength = 64
+	iface := tunnelMock.UserSpaceTUNInterface{}
+	err = iface.Init(uint32(tunnelInfo.ClientParameters.Mtu), conn, tunnelInfo.ClientParameters.Address, prefixLength)
+	if err != nil {
+		return nil, err
+	}
+
+	remoteRsd, err := iface.TunnelInterface(net.ParseIP(tunnelInfo.ServerAddress), uint16(tunnelInfo.ServerRSDPort))
+	if err != nil {
+		return nil, err
+	}
+	defer remoteRsd.Close()
+
+	rsdService, err := NewRsdServiceFromConn(remoteRsd)
+	if err != nil {
+		return nil, err
+	}
+	defer rsdService.Close()
+
+	rsdProvider, err := rsdService.Handshake()
+	if err != nil {
+		return nil, err
+	}
+	//fmt.Printf("Established RSD connection to device %s over CoreDeviceProxy\n", device.Properties.SerialNumber)
+	device.Rsd = rsdProvider
+	device.USInterface = &iface
+	device.Address = tunnelInfo.ServerAddress
+
+	sport := device.Rsd.GetPort(serviceName)
+
+	sconn, err := iface.TunnelInterface(net.ParseIP(tunnelInfo.ServerAddress), uint16(sport))
 	if err != nil {
 		return nil, fmt.Errorf("ConnectToServiceTunnelIface: failed to connect to tunnel: %w", err)
 	}
 
-	return NewDeviceConnectionWithRWC(conn), nil
+	return NewDeviceConnectionWithRWC(sconn), nil
+}
+
+func ConnectToServiceTunnelIfaceMock(device DeviceEntry, serviceName string) (DeviceConnectionInterface, error) {
+	fmt.Printf("UUUUUUUUUU %s\n", device.Properties.SerialNumber)
+
+	if device.Rsd != nil {
+		fmt.Printf("AAAAAAAAAA %s\n", device.Properties.SerialNumber)
+		sport := device.Rsd.GetPort(serviceName)
+		sconn, err := device.USInterface.TunnelInterface(net.ParseIP(device.Address), uint16(sport))
+		if err != nil {
+			return nil, fmt.Errorf("ConnectToServiceTunnelIface: failed to connect to tunnel: %w", err)
+		}
+		return NewDeviceConnectionWithRWC(sconn), nil
+	}
+	conn, err := ConnectToService(device, "com.apple.internal.devicecompute.CoreDeviceProxy")
+	if err != nil {
+		return nil, err
+	}
+
+	tunnelInfo, err := tunnelMock.ExchangeCoreTunnelParameters(conn)
+	if err != nil {
+		return nil, err
+	}
+	const prefixLength = 64
+	iface := tunnelMock.UserSpaceTUNInterface{}
+	err = iface.Init(uint32(tunnelInfo.ClientParameters.Mtu), conn, tunnelInfo.ClientParameters.Address, prefixLength)
+	if err != nil {
+		return nil, err
+	}
+
+	remoteRsd, err := iface.TunnelInterface(net.ParseIP(tunnelInfo.ServerAddress), uint16(tunnelInfo.ServerRSDPort))
+	if err != nil {
+		return nil, err
+	}
+	defer remoteRsd.Close()
+
+	rsdService, err := NewRsdServiceFromConn(remoteRsd)
+	if err != nil {
+		return nil, err
+	}
+	defer rsdService.Close()
+
+	rsdProvider, err := rsdService.Handshake()
+	if err != nil {
+		return nil, err
+	}
+	//fmt.Printf("Established RSD connection to device %s over CoreDeviceProxy\n", device.Properties.SerialNumber)
+	device.Rsd = rsdProvider
+
+	sport := device.Rsd.GetPort(serviceName)
+
+	sconn, err := iface.TunnelInterface(net.ParseIP(tunnelInfo.ServerAddress), uint16(sport))
+	if err != nil {
+		return nil, fmt.Errorf("ConnectToServiceTunnelIface: failed to connect to tunnel: %w", err)
+	}
+
+	return NewDeviceConnectionWithRWC(sconn), nil
+}
+
+func ConnectToServiceTunnelIface(device DeviceEntry, serviceName string) (DeviceConnectionInterface, error) {
+	// if !device.SupportsRsd() {
+	// 	return nil, fmt.Errorf("ConnectToServiceTunnelIface: Cannot connect to %s, missing tunnel address and RSD port", serviceName)
+	// }
+	// port := device.Rsd.GetPort(serviceName)
+
+	// conn, err := ConnectTUNDevice(device.Address, port, device)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("ConnectToServiceTunnelIface: failed to connect to tunnel: %w", err)
+	// }
+
+	// return NewDeviceConnectionWithRWC(conn), nil
+	return ConnectToServiceTunnelIfaceMock(device, serviceName)
 }
 
 func CreateXpcConnection(h *http.HttpConnection) (*xpc.Connection, error) {
@@ -205,22 +335,22 @@ func (muxConn *UsbMuxConnection) connectWithStartServiceResponse(deviceID int, s
 func ConnectLockdownWithSession(device DeviceEntry) (*LockDownConnection, error) {
 	muxConnection, err := NewUsbMuxConnectionSimple()
 	if err != nil {
-		return nil, fmt.Errorf("USBMuxConnection failed with: %v", err)
+		return nil, fmt.Errorf("USBMuxConnection failed: %w", err)
 	}
 	defer muxConnection.ReleaseDeviceConnection()
 
 	pairRecord, err := muxConnection.ReadPair(device.Properties.SerialNumber)
 	if err != nil {
-		return nil, fmt.Errorf("could not retrieve PairRecord with error: %v", err)
+		return nil, fmt.Errorf("could not retrieve PairRecord: %w", err)
 	}
 
 	lockdownConnection, err := muxConnection.ConnectLockdown(device.DeviceID)
 	if err != nil {
-		return nil, fmt.Errorf("Lockdown connection failed with: %v", err)
+		return nil, fmt.Errorf("lockdown connection failed with: %w", err)
 	}
 	resp, err := lockdownConnection.StartSession(pairRecord)
 	if err != nil {
-		return nil, fmt.Errorf("StartSession failed: %+v error: %v", resp, err)
+		return nil, fmt.Errorf("startSession failed with response %+v: %w", resp, err)
 	}
 	return lockdownConnection, nil
 }
@@ -274,32 +404,60 @@ func initializeXpcConnection(h *http.HttpConnection) error {
 	return nil
 }
 
+func ConnectTUNDeviceMock(remoteIp string, d DeviceEntry) (*net.TCPConn, error) {
+	conn, err := ConnectToService(d, "com.apple.internal.devicecompute.CoreDeviceProxy")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	tunnelInfo, err := tunnelMock.ExchangeCoreTunnelParameters(conn)
+	if err != nil {
+		return nil, err
+	}
+
+	const prefixLength = 64
+	iface := tunnelMock.UserSpaceTUNInterface{}
+	defer iface.CloseStack()
+	err = iface.Init(uint32(tunnelInfo.ClientParameters.Mtu), conn, tunnelInfo.ClientParameters.Address, prefixLength)
+	if err != nil {
+		return nil, err
+	}
+
+	remote, err := iface.TunnelInterface(net.ParseIP(remoteIp), uint16(port))
+	if err != nil {
+		return nil, err
+	}
+	tcpConn, ok := remote.(*net.TCPConn)
+	if !ok {
+		return nil, fmt.Errorf("failed to assert remote as *net.TCPConn")
+	}
+	return tcpConn, err
+}
+
 // ConnectTUNDevice creates a *net.TCPConn to the device at the given address and port.
 // If the device is a userspaceTUN device provided by go-ios agent, it will connect to this
 // automatically. Otherwise it will try a operating system level TUN device.
 func ConnectTUNDevice(remoteIp string, port int, d DeviceEntry) (*net.TCPConn, error) {
-	if !d.UserspaceTUN {
-		return connectTUN(remoteIp, port)
-	}
+	// addr, _ := net.ResolveTCPAddr("tcp4", fmt.Sprintf("%s:%d", d.UserspaceTUNHost, d.UserspaceTUNPort))
+	// conn, err := net.DialTCP("tcp", nil, addr)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("ConnectUserSpaceTunnel: failed to dial: %w", err)
+	// }
+	// err = conn.SetKeepAlive(true)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("ConnectUserSpaceTunnel: failed to set keepalive: %w", err)
+	// }
+	// err = conn.SetKeepAlivePeriod(1 * time.Second)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("ConnectUserSpaceTunnel: failed to set keepalive period: %w", err)
+	// }
+	// _, err = conn.Write(net.ParseIP(remoteIp).To16())
+	// portBytes := make([]byte, 4)
+	// binary.LittleEndian.PutUint32(portBytes, uint32(port))
+	// _, err1 := conn.Write(portBytes)
+	// return conn, errors.Join(err, err1)
 
-	addr, _ := net.ResolveTCPAddr("tcp4", fmt.Sprintf("%s:%d", d.UserspaceTUNHost, d.UserspaceTUNPort))
-	conn, err := net.DialTCP("tcp", nil, addr)
-	if err != nil {
-		return nil, fmt.Errorf("ConnectUserSpaceTunnel: failed to dial: %w", err)
-	}
-	err = conn.SetKeepAlive(true)
-	if err != nil {
-		return nil, fmt.Errorf("ConnectUserSpaceTunnel: failed to set keepalive: %w", err)
-	}
-	err = conn.SetKeepAlivePeriod(1 * time.Second)
-	if err != nil {
-		return nil, fmt.Errorf("ConnectUserSpaceTunnel: failed to set keepalive period: %w", err)
-	}
-	_, err = conn.Write(net.ParseIP(remoteIp).To16())
-	portBytes := make([]byte, 4)
-	binary.LittleEndian.PutUint32(portBytes, uint32(port))
-	_, err1 := conn.Write(portBytes)
-	return conn, errors.Join(err, err1)
+	return ConnectTUNDeviceMock(remoteIp, d)
 }
 
 // connect to a operating system level TUN device

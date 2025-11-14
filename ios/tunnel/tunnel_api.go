@@ -386,20 +386,17 @@ type manualPairingTunnelStart struct {
 func (m manualPairingTunnelStart) StartTunnel(ctx context.Context, device ios.DeviceEntry, p PairRecordManager, version *semver.Version, userspaceTUN bool) (Tunnel, error) {
 
 	if version.GreaterThan(semver.MustParse("17.4.0")) {
-		if userspaceTUN {
-			tun, err := ConnectUserSpaceTunnelLockdown(device, device.UserspaceTUNPort)
-			tun.UserspaceTUN = true
-			tun.UserspaceTUNPort = device.UserspaceTUNPort
-			return tun, err
-		}
-		return ConnectTunnelLockdown(device)
+		tun, err := ConnectUserSpaceTunnelLockdown(device, device.UserspaceTUNPort)
+		tun.UserspaceTUN = true
+		tun.UserspaceTUNPort = device.UserspaceTUNPort
+		return tun, err
 	}
-	if version.Major() >= 17 {
-		if userspaceTUN {
-			return Tunnel{}, errors.New("manualPairingTunnelStart: userspaceTUN not supported for iOS >=17 and < 17.4")
-		}
-		return ManualPairAndConnectToTunnel(ctx, device, p)
-	}
+	// if version.Major() >= 17 {
+	// 	if userspaceTUN {
+	// 		return Tunnel{}, errors.New("manualPairingTunnelStart: userspaceTUN not supported for iOS >=17 and < 17.4")
+	// 	}
+	// 	return ManualPairAndConnectToTunnel(ctx, device, p)
+	// }
 	return Tunnel{}, fmt.Errorf("manualPairingTunnelStart: unsupported iOS version %s", version.String())
 }
 

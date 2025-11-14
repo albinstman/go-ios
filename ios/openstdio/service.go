@@ -22,11 +22,10 @@ type Connection struct {
 // NewOpenStdIoSocket creates a new stdio-socket on the device and the returned connection can be used
 // to read and write from this socket
 func NewOpenStdIoSocket(device ios.DeviceEntry) (Connection, error) {
-	if device.Rsd == nil {
+	if !device.SupportsRsd() {
 		return Connection{}, errors.New("NewOpenStdIoSocket: no rsd device found")
 	}
-	port := device.Rsd.GetPort("com.apple.coredevice.openstdiosocket")
-	conn, err := ios.ConnectTUNDevice(device.Address, port, device)
+	conn, err := ios.ConnectToServiceTunnelIfaceMock(device, "com.apple.coredevice.openstdiosocket")
 	if err != nil {
 		return Connection{}, fmt.Errorf("NewOpenStdIoSocket: failed to open connection: %w", err)
 	}

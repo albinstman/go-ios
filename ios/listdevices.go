@@ -2,9 +2,11 @@ package ios
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 
+	"github.com/danielpaulus/go-ios/ios/tunnelMock"
 	plist "howett.net/plist"
 )
 
@@ -61,6 +63,7 @@ type DeviceEntry struct {
 	UserspaceTUN     bool
 	UserspaceTUNHost string
 	UserspaceTUNPort int
+	USInterface      *tunnelMock.UserSpaceTUNInterface
 }
 
 // DeviceProperties contains important device related info like the udid which is named SerialNumber
@@ -88,7 +91,7 @@ func NewReadDevices() ReadDevicesType {
 // SupportsRsd checks if the device supports RSD (Remote Service Discovery).
 // It returns true if the device has RSD capability, otherwise false.
 func (device *DeviceEntry) SupportsRsd() bool {
-	return device.Rsd != nil
+	return true
 }
 
 // ListDevices returns a DeviceList containing data about all
@@ -96,11 +99,11 @@ func (device *DeviceEntry) SupportsRsd() bool {
 func (muxConn *UsbMuxConnection) ListDevices() (DeviceList, error) {
 	err := muxConn.Send(NewReadDevices())
 	if err != nil {
-		return DeviceList{}, fmt.Errorf("Failed sending to usbmux requesting devicelist: %v", err)
+		return DeviceList{}, fmt.Errorf("failed sending to usbmux requesting devicelist: %v", err)
 	}
 	response, err := muxConn.ReadMessage()
 	if err != nil {
-		return DeviceList{}, fmt.Errorf("Failed getting devicelist: %v", err)
+		return DeviceList{}, fmt.Errorf("failed getting devicelist: %v", err)
 	}
 	return DeviceListfromBytes(response.Payload), nil
 }
@@ -114,4 +117,47 @@ func ListDevices() (DeviceList, error) {
 	}
 	defer muxConnection.Close()
 	return muxConnection.ListDevices()
+}
+
+type detailsEntry struct {
+	Udid           string
+	ProductName    string
+	ProductType    string
+	ProductVersion string
+	ConnectionType string
+}
+
+func DetailedList() (string, error) {
+	dl, err := ListDevices()
+	if err != nil {
+		return "", fmt.Errorf("failed listing devices: %w", err)
+	}
+	result := make([]detailsEntry, len(dl.DeviceList))
+	for i, device := range dl.DeviceList {
+		udid := device.Properties.SerialNumber
+		allValues, err := GetValues(device)
+		if err != nil {
+			return "", fmt.Errorf("failed getting values: %w", err)
+		}
+		result[i] = detailsEntry{
+			udid,
+			allValues.Value.ProductName,
+			allValues.Value.ProductType,
+			allValues.Value.ProductVersion,
+			device.Properties.ConnectionType,
+		}
+	}
+
+	return convertToJSONString(map[string][]detailsEntry{
+		"devices": result,
+	}), nil
+}
+
+func convertToJSONString(data interface{}) string {
+	b, err := json.Marshal(data)
+	if err != nil {
+		fmt.Println(err)
+		return ""
+	}
+	return string(b)
 }
