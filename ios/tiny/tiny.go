@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/danielpaulus/go-ios/ios"
 	"github.com/danielpaulus/go-ios/ios/amfi"
@@ -372,9 +371,6 @@ func WdaRun(device ios.DeviceEntry) string {
 	}()
 
 	globalSessions.Store(device.Properties.SerialNumber, session)
-
-	time.Sleep(10 * time.Second)
-	stopWda()
 
 	return convertToJSONString(map[string]bool{"ok": true})
 }
