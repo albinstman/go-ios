@@ -1,6 +1,7 @@
 package instruments
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/danielpaulus/go-ios/ios"
@@ -106,6 +107,7 @@ type DeviceInfoService struct {
 
 // NewDeviceInfoService creates a new DeviceInfoService for a given device
 func NewDeviceInfoService(device ios.DeviceEntry) (*DeviceInfoService, error) {
+	fmt.Println("2")
 	dtxConn, err := connectInstruments(device)
 	if err != nil {
 		return nil, err

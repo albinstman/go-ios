@@ -231,12 +231,14 @@ func AppInstall(device ios.DeviceEntry, path string) string {
 }
 
 func Processes(device ios.DeviceEntry) string {
+	fmt.Println("1")
 	service, err := instruments.NewDeviceInfoService(device)
 	if err != nil {
 		return convertToJSONString(map[string][]any{
 			"processes": {},
 		})
 	}
+
 	defer service.Close()
 	processList, err := service.ProcessList()
 	if err != nil {

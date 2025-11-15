@@ -220,8 +220,6 @@ func ConnectToServiceTunnelIfaceMockPtr(device *DeviceEntry, serviceName string)
 }
 
 func ConnectToServiceTunnelIfaceMock(device DeviceEntry, serviceName string) (DeviceConnectionInterface, error) {
-	fmt.Printf("UUUUUUUUUU %s\n", device.Properties.SerialNumber)
-
 	if device.Rsd != nil {
 		fmt.Printf("AAAAAAAAAA %s\n", device.Properties.SerialNumber)
 		sport := device.Rsd.GetPort(serviceName)
@@ -231,6 +229,7 @@ func ConnectToServiceTunnelIfaceMock(device DeviceEntry, serviceName string) (De
 		}
 		return NewDeviceConnectionWithRWC(sconn), nil
 	}
+
 	conn, err := ConnectToService(device, "com.apple.internal.devicecompute.CoreDeviceProxy")
 	if err != nil {
 		return nil, err

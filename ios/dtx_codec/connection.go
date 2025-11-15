@@ -156,7 +156,6 @@ func NewTunnelConnection(device ios.DeviceEntry, serviceName string) (*Connectio
 	if err != nil {
 		return nil, err
 	}
-
 	return newDtxConnection(conn)
 }
 
