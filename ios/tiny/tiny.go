@@ -48,6 +48,10 @@ func convertToJSONString(data interface{}) string {
 	return string(b)
 }
 
+func Reboot() string {
+
+}
+
 func DeviceList() string {
 	dl, _ := ios.DetailedList()
 	return dl
