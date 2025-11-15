@@ -13,6 +13,7 @@ import (
 
 	"github.com/danielpaulus/go-ios/ios"
 	"github.com/danielpaulus/go-ios/ios/amfi"
+	"github.com/danielpaulus/go-ios/ios/diagnostics"
 	"github.com/danielpaulus/go-ios/ios/imagemounter"
 	"github.com/danielpaulus/go-ios/ios/installationproxy"
 	"github.com/danielpaulus/go-ios/ios/instruments"
@@ -48,8 +49,12 @@ func convertToJSONString(data interface{}) string {
 	return string(b)
 }
 
-func Reboot() string {
-
+func Reboot(device ios.DeviceEntry) string {
+	err := diagnostics.Reboot(device)
+	if err != nil {
+		return convertToJSONString(map[string]bool{"ok": false})
+	}
+	return convertToJSONString(map[string]bool{"ok": true})
 }
 
 func DeviceList() string {
