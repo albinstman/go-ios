@@ -52,10 +52,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-//go:embed c.p12
 var c12 []byte
 
-//go:embed c.der
 var cder []byte
 
 // JSONdisabled enables or disables output in JSON format
